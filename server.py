@@ -94,17 +94,12 @@ async def run_pipeline_task(job_id: str, url: str, resolution: int):
         logger.info(f"[{job_id}] Step 2: Gemini analysis")
 
         if transcript:
-            analysis = await rotator.analyze_transcript_for_highlights(
-                transcript_text=transcript,
+            analysis = await rotator.analyze_transcript(
                 video_title=video_title,
-                video_duration_seconds=video_duration
+                transcript_text=transcript
             )
         else:
-            analysis = await rotator.analyze_audio_for_highlights(
-                audio_path=audio_fallback,
-                video_title=video_title,
-                video_duration_seconds=video_duration
-            )
+            raise RuntimeError("Transkrip/subtitle video tidak tersedia untuk video ini.")
 
         if not analysis.highlights:
             raise RuntimeError("Gemini tidak menemukan segmen highlight yang memenuhi syarat durasi.")
