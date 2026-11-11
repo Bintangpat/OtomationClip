@@ -10,9 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 def get_ffmpeg_command() -> str:
-    """Finds ffmpeg binary in system PATH or returns 'ffmpeg'."""
+    """Finds ffmpeg binary in system PATH or falls back to imageio-ffmpeg bundled binary."""
     path = shutil.which("ffmpeg")
-    return path or "ffmpeg"
+    if path:
+        return path
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except (ImportError, Exception):
+        pass
+    return "ffmpeg"
 
 
 def get_ffprobe_command() -> str:

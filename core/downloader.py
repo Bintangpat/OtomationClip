@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, Tuple
 
 from core.config import Config
 from core.transcript_extractor import parse_vtt_file, format_cues_into_timestamped_transcript
+from core.video_editor import get_ffmpeg_command
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,10 @@ class Downloader:
             "--user-agent", BROWSER_USER_AGENT,
             "--socket-timeout", "30",
         ]
+        ffmpeg_bin = get_ffmpeg_command()
+        if ffmpeg_bin and ffmpeg_bin != "ffmpeg" and os.path.exists(ffmpeg_bin):
+            args.extend(["--ffmpeg-location", ffmpeg_bin])
+
         cookies_file = Config.get_cookies_path()
         if cookies_file and os.path.exists(cookies_file):
             args.extend(["--cookies", cookies_file])
@@ -203,12 +208,14 @@ class Downloader:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await process.communicate()
+        stdout, stderr = await process.communicate()
 
         if process.returncode != 0 or not output_file.exists():
+            out_msg = stdout.decode(errors="ignore").strip()
             err_msg = stderr.decode(errors="ignore").strip()
-            logger.error(f"Failed to download source video: {err_msg}")
-            raise RuntimeError(f"Gagal mengunduh video sumber: {err_msg[:200]}")
+            full_err = err_msg or out_msg or "Unknown error (output video was not generated)"
+            logger.error(f"Failed to download source video: {full_err}")
+            raise RuntimeError(f"Gagal mengunduh video sumber: {full_err[:200]}")
 
         file_size_mb = output_file.stat().st_size / (1024 * 1024)
         logger.info(f"Source video successfully downloaded: {output_file.name} ({file_size_mb:.1f} MB)")
