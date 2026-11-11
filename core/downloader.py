@@ -28,12 +28,10 @@ def get_ytdlp_command() -> list:
 class Downloader:
     @staticmethod
     def _get_base_ytdlp_args() -> list:
-        # Uses web, mweb, and tv (omits android to prevent FFmpeg 403 Forbidden)
         args = [
             "--no-warnings",
             "--no-playlist",
             "--no-check-certificates",
-            "--extractor-args", "youtube:player_client=web,mweb,tv",
             "--socket-timeout", "30",
         ]
         cookies_file = Config.get_cookies_path()
