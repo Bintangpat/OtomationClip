@@ -103,7 +103,7 @@ class QueueManager:
                 if not analysis.highlights:
                     raise RuntimeError("Gemini tidak menemukan segmen highlight yang memenuhi syarat durasi.")
 
-                # 3. Download & Cut Highlights
+                # 3. Download & Cut Highlights (Method B: Full source download + local fast cut)
                 job.status = JobStatus.CUTTING_VIDEO
                 total_clips = len(analysis.highlights)
                 try:
@@ -112,10 +112,24 @@ class QueueManager:
                     pass
                 downloaded_clips = []
 
+                # Step 3a: Download full source video via native yt-dlp (Bypasses FFmpeg 403 Forbidden)
+                await self._update_status(
+                    job,
+                    f"📥 *[3/4] Mengunduh Video Sumber ({Config.PREFERRED_RESOLUTION}p)...*\n"
+                    f"⚡ _Memanfaatkan kecepatan tinggi VPS & bebas 403 Forbidden..._"
+                )
+                source_video_path = job_dir / f"source_{job.job_id}.mp4"
+                await Downloader.download_source_video(
+                    url=job.url,
+                    output_file=source_video_path,
+                    resolution=Config.PREFERRED_RESOLUTION
+                )
+
+                # Step 3b: Cut clips locally via FFmpeg (instant, 0-risk of remote 403)
                 for idx, hl in enumerate(analysis.highlights, start=1):
                     await self._update_status(
                         job,
-                        f"✂️ *[3/4] Mengunduh & Memotong Klip ({idx}/{total_clips})...*\n"
+                        f"✂️ *[3/4] Memotong Klip Highlight ({idx}/{total_clips})...*\n"
                         f"📌 *{hl.title}*\n"
                         f"⏱️ `{hl.start_time}` ➔ `{hl.end_time}` ({int(hl.duration_seconds)} detik)"
                     )
@@ -123,13 +137,15 @@ class QueueManager:
                     clip_filename = f"clip_{idx}_{job.job_id}.mp4"
                     clip_path = output_dir / clip_filename
 
-                    # Smart section download
-                    await Downloader.download_section(
-                        url=job.url,
-                        start_sec=hl.start_seconds,
-                        end_sec=hl.end_seconds,
-                        output_file=clip_path,
-                        resolution=Config.PREFERRED_RESOLUTION
+                    # Add 1-second safety buffer for seamless dialogue cut
+                    buffered_start = max(0.0, hl.start_seconds - 1.0)
+                    duration = (hl.end_seconds + 1.0) - buffered_start
+
+                    await VideoEditor.cut_clip_fast(
+                        input_path=source_video_path,
+                        output_path=clip_path,
+                        start_seconds=buffered_start,
+                        duration_seconds=duration
                     )
 
                     # Ensure <= 50MB for Telegram
@@ -140,6 +156,11 @@ class QueueManager:
                     await VideoEditor.generate_thumbnail(final_clip_path, thumb_path)
 
                     downloaded_clips.append((hl, final_clip_path, thumb_path))
+
+                # Immediately delete source video to conserve NVMe disk space
+                if source_video_path.exists():
+                    source_video_path.unlink(missing_ok=True)
+                    logger.info(f"Cleaned up source video: {source_video_path.name}")
 
                 # 4. Delivery to Telegram
                 job.status = JobStatus.SENDING

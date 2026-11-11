@@ -71,9 +71,9 @@ class VideoEditor:
         )
         _, stderr = await process.communicate()
 
-        if process.returncode != 0 or not output_path.exists():
+        if process.returncode != 0 or not output_path.exists() or output_path.stat().st_size == 0:
             err_msg = stderr.decode(errors="ignore").strip()
-            logger.warning(f"Fast copy cut failed, attempting ultrafast re-encode fallback: {err_msg[:120]}")
+            logger.warning(f"Fast copy cut failed or produced empty file, attempting ultrafast re-encode fallback: {err_msg[:120]}")
             return await cls.reencode_clip(input_path, output_path, start_seconds, duration_seconds)
 
         return output_path

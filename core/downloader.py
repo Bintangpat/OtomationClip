@@ -164,6 +164,57 @@ class Downloader:
         return metadata, transcript_text, audio_path
 
     @classmethod
+    async def download_source_video(
+        cls,
+        url: str,
+        output_file: Path,
+        resolution: int = 720
+    ) -> Path:
+        """
+        Downloads source video via native yt-dlp downloader into a single MP4 file.
+        Avoids remote HLS/FFmpeg range requests to guarantee 100% immunity from HTTP 403 Forbidden.
+        """
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            pass
+        base_cmd = get_ytdlp_command()
+
+        # Format spec preferring standard HTTPS streams over fragmented HLS manifests
+        format_spec = (
+            f"bestvideo[height<={resolution}][protocol^=http]+bestaudio[protocol^=http]/"
+            f"bestvideo[height<={resolution}]+bestaudio/"
+            f"best[height<={resolution}]/"
+            f"best"
+        )
+
+        cmd = [
+            *base_cmd,
+            *cls._get_base_ytdlp_args(),
+            "-f", format_spec,
+            "--merge-output-format", "mp4",
+            "-o", str(output_file),
+            url
+        ]
+
+        logger.info(f"Downloading source video ({resolution}p max) to {output_file.name}...")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await process.communicate()
+
+        if process.returncode != 0 or not output_file.exists():
+            err_msg = stderr.decode(errors="ignore").strip()
+            logger.error(f"Failed to download source video: {err_msg}")
+            raise RuntimeError(f"Gagal mengunduh video sumber: {err_msg[:200]}")
+
+        file_size_mb = output_file.stat().st_size / (1024 * 1024)
+        logger.info(f"Source video successfully downloaded: {output_file.name} ({file_size_mb:.1f} MB)")
+        return output_file
+
+    @classmethod
     async def download_section(
         cls,
         url: str,
