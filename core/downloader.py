@@ -210,12 +210,49 @@ class Downloader:
         )
         stdout, stderr = await process.communicate()
 
-        if process.returncode != 0 or not output_file.exists():
+        # If yt-dlp downloaded video and audio fragments but didn't merge them, merge them locally with FFmpeg
+        if not output_file.exists():
+            parent_dir = output_file.parent
+            parts = list(parent_dir.glob(f"{output_file.stem}.f*"))
+            if parts:
+                logger.info(f"Detected unmerged media parts in {parent_dir.name}: {[p.name for p in parts]}. Merging locally via FFmpeg...")
+                video_part = next((p for p in parts if any(ext in p.suffix for ext in (".mp4", ".mkv", ".webm")) and not any(k in p.name for k in ("251", "140", "audio", "ba"))), None)
+                audio_part = next((p for p in parts if any(k in p.name for k in ("251", "140", "audio", "ba")) or p.suffix in (".m4a", ".opus")), None)
+
+                if video_part and audio_part:
+                    ffmpeg_bin = get_ffmpeg_command()
+                    merge_cmd = [
+                        ffmpeg_bin, "-y",
+                        "-i", str(video_part),
+                        "-i", str(audio_part),
+                        "-c:v", "copy",
+                        "-c:a", "aac",
+                        "-b:a", "192k",
+                        str(output_file)
+                    ]
+                    merge_proc = await asyncio.create_subprocess_exec(
+                        *merge_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    await merge_proc.communicate()
+
+                    if output_file.exists():
+                        logger.info(f"Local FFmpeg merge successful -> {output_file.name}")
+                        video_part.unlink(missing_ok=True)
+                        audio_part.unlink(missing_ok=True)
+                elif len(parts) == 1:
+                    shutil.move(str(parts[0]), str(output_file))
+
+        if not output_file.exists():
             out_msg = stdout.decode(errors="ignore").strip()
             err_msg = stderr.decode(errors="ignore").strip()
             full_err = err_msg or out_msg or "Unknown error (output video was not generated)"
-            logger.error(f"Failed to download source video: {full_err}")
-            raise RuntimeError(f"Gagal mengunduh video sumber: {full_err[:200]}")
+            # Extract the actual last 3-4 error lines from the output
+            tail_lines = [l for l in full_err.splitlines() if l.strip()][-4:]
+            compact_err = " | ".join(tail_lines) if tail_lines else full_err[:200]
+            logger.error(f"Failed to download source video: {compact_err}")
+            raise RuntimeError(f"Gagal mengunduh video sumber: {compact_err}")
 
         file_size_mb = output_file.stat().st_size / (1024 * 1024)
         logger.info(f"Source video successfully downloaded: {output_file.name} ({file_size_mb:.1f} MB)")
