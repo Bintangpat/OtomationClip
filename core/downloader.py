@@ -12,7 +12,6 @@ from core.transcript_extractor import parse_vtt_file, format_cues_into_timestamp
 
 logger = logging.getLogger(__name__)
 
-# Standard trusted browser User-Agent for FFmpeg stream connections
 BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 
@@ -32,6 +31,7 @@ class Downloader:
             "--no-warnings",
             "--no-playlist",
             "--no-check-certificates",
+            "--user-agent", BROWSER_USER_AGENT,
             "--socket-timeout", "30",
         ]
         cookies_file = Config.get_cookies_path()
@@ -174,8 +174,6 @@ class Downloader:
     ) -> Path:
         """
         Downloads ONLY the specific highlight section using yt-dlp --download-sections.
-        Passes browser User-Agent to FFmpeg and excludes Android client to prevent
-        HTTP 403 Forbidden errors on googlevideo.com.
         """
         try:
             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -189,11 +187,9 @@ class Downloader:
 
         section_arg = f"*{buffered_start:.1f}-{buffered_end:.1f}"
 
-        # Loose universal format selection: best within height <= resolution, then fallback to any best
         format_spec = (
             f"bestvideo[height<={resolution}]+bestaudio/"
             f"best[height<={resolution}]/"
-            f"bestvideo+bestaudio/"
             f"best"
         )
 
@@ -204,12 +200,11 @@ class Downloader:
             "-f", format_spec,
             "--merge-output-format", "mp4",
             "--force-keyframes-at-cuts",
-            "--downloader-args", f"ffmpeg_i:-user_agent {BROWSER_USER_AGENT}",
             "-o", str(output_file),
             url
         ]
 
-        logger.info(f"Downloading section {section_arg} with loose format ({format_spec[:35]}...) to {output_file.name}")
+        logger.info(f"Downloading section {section_arg} to {output_file.name}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -217,43 +212,9 @@ class Downloader:
         )
         _, stderr = await process.communicate()
 
-        # Fallback with TV player client if standard web client fails
         if process.returncode != 0 or not output_file.exists():
             err_msg = stderr.decode(errors="ignore").strip()
-            logger.warning(f"Standard section download failed ({err_msg[:80]}), attempting fallback with TV client...")
-            
-            fallback_cmd = [
-                *base_cmd,
-                "--no-warnings",
-                "--no-playlist",
-                "--no-check-certificates",
-                "--extractor-args", "youtube:player_client=tv",
-                "--socket-timeout", "30",
-            ]
-            cookies_file = Config.get_cookies_path()
-            if cookies_file and os.path.exists(cookies_file):
-                fallback_cmd.extend(["--cookies", cookies_file])
-
-            fallback_cmd.extend([
-                "--download-sections", section_arg,
-                "-f", f"bestvideo[height<={resolution}]+bestaudio/best",
-                "--merge-output-format", "mp4",
-                "--force-keyframes-at-cuts",
-                "--downloader-args", f"ffmpeg_i:-user_agent {BROWSER_USER_AGENT}",
-                "-o", str(output_file),
-                url
-            ])
-
-            fallback_proc = await asyncio.create_subprocess_exec(
-                *fallback_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, fb_stderr = await fallback_proc.communicate()
-
-            if fallback_proc.returncode != 0 or not output_file.exists():
-                final_err = fb_stderr.decode(errors="ignore").strip() or err_msg
-                logger.error(f"Failed to download section after fallback: {final_err}")
-                raise RuntimeError(f"Gagal mengunduh klip video: {final_err[:200]}")
+            logger.error(f"Failed to download section: {err_msg}")
+            raise RuntimeError(f"Gagal mengunduh klip video: {err_msg[:200]}")
 
         return output_file
