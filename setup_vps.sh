@@ -7,10 +7,10 @@ set -e
 
 echo "🚀 Memulai Setup Auto-Clipper Server..."
 
-# 1. Update package list & install system dependencies
-echo "📦 Menginstall dependency sistem (ffmpeg, python3-venv)..."
+# 1. Update package list & install system dependencies (termasuk nodejs untuk JS challenge YouTube)
+echo "📦 Menginstall dependency sistem (ffmpeg, nodejs, python3-venv)..."
 sudo apt update -y
-sudo apt install -y ffmpeg python3-pip python3-venv git curl
+sudo apt install -y ffmpeg python3-pip python3-venv git curl nodejs
 
 # Hapus yt-dlp lama dari apt (jika pernah terinstall) agar tidak bentrok
 sudo apt remove -y yt-dlp 2>/dev/null || true

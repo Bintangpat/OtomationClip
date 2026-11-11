@@ -6,3 +6,4 @@ python-dotenv>=1.0.1
 pydantic>=2.10.0
 webvtt-py>=0.4.6
 aiofiles>=24.1.0
+curl-cffi>=0.7.0
